@@ -8,39 +8,56 @@ variables:
 stages:
 - stage: 'Build'
   displayName: 'Build the web application'
-  jobs: 
+  jobs:
   - job: 'Build'
     displayName: 'Build job'
     pool:
       vmImage: 'ubuntu-22.04'
-      demands:
-      - npm
 
     variables:
       wwwrootDir: 'Tailspin.SpaceGame.Web/wwwroot'
       dotnetSdkVersion: '8.x'
 
     steps:
+    # Kies expliciet een Node-versie (18 is stabiel met veel toolchains)
+    - task: NodeTool@0
+      displayName: 'Use Node.js 18'
+      inputs:
+        versionSpec: '18.x'
+
+    # .NET SDK
     - task: UseDotNet@2
       displayName: 'Use .NET SDK $(dotnetSdkVersion)'
       inputs:
         version: '$(dotnetSdkVersion)'
 
+    # NPM dependencies installeren (sneller/consistenter in CI)
     - task: Npm@1
-      displayName: 'Run npm install'
+      displayName: 'npm ci'
       inputs:
+        command: 'ci'
         verbose: false
 
-    - script: './node_modules/.bin/node-sass $(wwwrootDir) --output $(wwwrootDir)'
+    # Compileer Sass met dart-sass (geen native build meer nodig)
+    # Pas paden aan als je een submap gebruikt (bijv. $(wwwrootDir)/scss:$(wwwrootDir)/css)
+    - script: './node_modules/.bin/sass $(wwwrootDir):$(wwwrootDir) --no-source-map'
       displayName: 'Compile Sass assets'
 
-    - task: gulp@1
+    # Gulp taken (zorg dat gulp & gulp-sass@^5 in devDependencies staan)
+    - task: Gulp@1
       displayName: 'Run gulp tasks'
+      inputs:
+        # Laat defaults hun werk doen; optioneel kun je targets meegeven:
+        # targets: 'build'
+        # gulpFile: 'gulpfile.js'
+        publishJUnitResults: false
 
+    # Bouwinfo wegschrijven
     - script: 'echo "$(Build.DefinitionName), $(Build.BuildId), $(Build.BuildNumber)" > buildinfo.txt'
       displayName: 'Write build info'
       workingDirectory: $(wwwrootDir)
 
+    # .NET restore/build/publish
     - task: DotNetCoreCLI@2
       displayName: 'Restore project dependencies'
       inputs:
@@ -69,7 +86,7 @@ stages:
 - stage: 'Dev'
   displayName: 'Deploy to the dev environment'
   dependsOn: Build
-  condition:  succeeded()
+  condition: succeeded()
   jobs:
   - deployment: Deploy
     pool:
