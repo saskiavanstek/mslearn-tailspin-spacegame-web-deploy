@@ -15,11 +15,12 @@ stages:
       vmImage: 'ubuntu-22.04'
 
     variables:
+      webDir: 'Tailspin.SpaceGame.Web'
       wwwrootDir: 'Tailspin.SpaceGame.Web/wwwroot'
       dotnetSdkVersion: '8.x'
 
     steps:
-    # Kies expliciet een Node-versie (18 is stabiel met veel toolchains)
+    # Node kiezen (stabiel voor toolchains)
     - task: NodeTool@0
       displayName: 'Use Node.js 18'
       inputs:
@@ -31,31 +32,32 @@ stages:
       inputs:
         version: '$(dotnetSdkVersion)'
 
-    # NPM dependencies installeren (sneller/consistenter in CI)
+    # NPM dependencies installeren in de JUISTE map
     - task: Npm@1
-      displayName: 'npm ci'
+      displayName: 'npm ci (in $(webDir))'
       inputs:
         command: 'ci'
+        workingDir: '$(webDir)'
         verbose: false
 
-    # Compileer Sass met dart-sass (geen native build meer nodig)
-    # Pas paden aan als je een submap gebruikt (bijv. $(wwwrootDir)/scss:$(wwwrootDir)/css)
-    - script: './node_modules/.bin/sass $(wwwrootDir):$(wwwrootDir) --no-source-map'
+    # Sass compileren via npx, vanuit de JUISTE map
+    # Pas input:output aan als je bv. /scss -> /css wil.
+    - script: 'npx --yes sass ./wwwroot:./wwwroot --no-source-map'
       displayName: 'Compile Sass assets'
+      workingDirectory: '$(webDir)'
 
-    # Gulp taken (zorg dat gulp & gulp-sass@^5 in devDependencies staan)
+    # Gulp taken (gulpfile staat in de webDir)
     - task: Gulp@1
       displayName: 'Run gulp tasks'
       inputs:
-        # Laat defaults hun werk doen; optioneel kun je targets meegeven:
-        # targets: 'build'
-        # gulpFile: 'gulpfile.js'
+        gulpFile: '$(webDir)/gulpfile.js'
+        # targets: 'build'   # optioneel, als je specifieke tasks hebt
         publishJUnitResults: false
 
-    # Bouwinfo wegschrijven
+    # Bouwinfo
     - script: 'echo "$(Build.DefinitionName), $(Build.BuildId), $(Build.BuildNumber)" > buildinfo.txt'
       displayName: 'Write build info'
-      workingDirectory: $(wwwrootDir)
+      workingDirectory: '$(wwwrootDir)'
 
     # .NET restore/build/publish
     - task: DotNetCoreCLI@2
