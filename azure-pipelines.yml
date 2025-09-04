@@ -8,58 +8,39 @@ variables:
 stages:
 - stage: 'Build'
   displayName: 'Build the web application'
-  jobs:
+  jobs: 
   - job: 'Build'
     displayName: 'Build job'
     pool:
       vmImage: 'ubuntu-22.04'
+      demands:
+      - npm
 
     variables:
-      webDir: 'Tailspin.SpaceGame.Web'
       wwwrootDir: 'Tailspin.SpaceGame.Web/wwwroot'
       dotnetSdkVersion: '8.x'
 
     steps:
-    # Node kiezen (stabiel voor toolchains)
-    - task: NodeTool@0
-      displayName: 'Use Node.js 18'
-      inputs:
-        versionSpec: '18.x'
-
-    # .NET SDK
     - task: UseDotNet@2
       displayName: 'Use .NET SDK $(dotnetSdkVersion)'
       inputs:
         version: '$(dotnetSdkVersion)'
 
-    # NPM dependencies installeren in de JUISTE map
     - task: Npm@1
-      displayName: 'npm ci (in $(webDir))'
+      displayName: 'Run npm install'
       inputs:
-        command: 'ci'
-        workingDir: '$(webDir)'
         verbose: false
 
-    # Sass compileren via npx, vanuit de JUISTE map
-    # Pas input:output aan als je bv. /scss -> /css wil.
-    - script: 'npx --yes sass ./wwwroot:./wwwroot --no-source-map'
+    - script: './node_modules/.bin/node-sass $(wwwrootDir) --output $(wwwrootDir)'
       displayName: 'Compile Sass assets'
-      workingDirectory: '$(webDir)'
 
-    # Gulp taken (gulpfile staat in de webDir)
-    - task: Gulp@1
+    - task: gulp@1
       displayName: 'Run gulp tasks'
-      inputs:
-        gulpFile: '$(webDir)/gulpfile.js'
-        # targets: 'build'   # optioneel, als je specifieke tasks hebt
-        publishJUnitResults: false
 
-    # Bouwinfo
     - script: 'echo "$(Build.DefinitionName), $(Build.BuildId), $(Build.BuildNumber)" > buildinfo.txt'
       displayName: 'Write build info'
-      workingDirectory: '$(wwwrootDir)'
+      workingDirectory: $(wwwrootDir)
 
-    # .NET restore/build/publish
     - task: DotNetCoreCLI@2
       displayName: 'Restore project dependencies'
       inputs:
@@ -88,7 +69,7 @@ stages:
 - stage: 'Dev'
   displayName: 'Deploy to the dev environment'
   dependsOn: Build
-  condition: succeeded()
+  condition:  succeeded()
   jobs:
   - deployment: Deploy
     pool:
@@ -108,4 +89,28 @@ stages:
               azureSubscription: 'AA5544(a48b76f0-8c42-455f-a5be-d03fcab50b37)'
               appType: 'webAppLinux'
               appName: 'tailspin-space-game-web-dev-15717'
+              package: '$(Pipeline.Workspace)/drop/$(buildConfiguration)/*.zip'
+
+- stage: 'Staging'
+  displayName: 'Deploy to the staging environment'
+  dependsOn: Dev
+  jobs:
+  - deployment: Deploy
+    pool:
+      vmImage: 'ubuntu-22.04'
+    environment: staging
+    variables:
+    - group: 'Release'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+          - task: AzureWebApp@1
+            displayName: 'Azure App Service Deploy: staging website'
+            inputs:
+              azureSubscription: 'AA5544(a48b76f0-8c42-455f-a5be-d03fcab50b37)'
+              appType: 'webAppLinux'
+              appName: 'tailspin-space-game-web-staging-15717'
               package: '$(Pipeline.Workspace)/drop/$(buildConfiguration)/*.zip'
